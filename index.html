@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Course Portal</title>
+<link rel="stylesheet" href="src/styles.css">
+</head>
+<body>
+
+<header class="site-header">
+  <div class="wrap header-inner">
+    <span class="brand" id="brand">Course Portal</span>
+    <nav id="nav" class="nav"></nav>
+  </div>
+</header>
+
+<div id="demo-banner" class="demo-banner" hidden>
+  <div class="wrap demo-inner">
+    <span id="demo-banner-text"></span>
+    <button id="demo-reset" class="btn btn-tiny"></button>
+  </div>
+</div>
+
+<main class="wrap">
+  <div id="notice" class="notice" hidden></div>
+  <div id="app">
+    <p class="muted">Loading…</p>
+  </div>
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <p class="muted" id="footer-text"></p>
+  </div>
+</footer>
+
+<!--
+  Deployment credentials.
+
+  config.js is absent from the repository on purpose (it is gitignored), so on
+  a fresh checkout this request returns 404 and the portal starts in DEMO MODE.
+  That single 404 in the browser console is expected and harmless.
+
+  The Supabase client library is NOT loaded here. It is fetched from
+  vendor/supabase.js only once config.js supplies real credentials, so a demo
+  deployment requests nothing but its own files. See SETUP.md step 5.
+-->
+<script src="config.js" onerror="window.__noConfigJs = true"></script>
+
+<!-- Course configuration and editable content are loaded from these. -->
+<script src="course.config.js"></script>
+
+<script src="src/tz.js"></script>
+<script src="src/csv.js"></script>
+<script src="src/items.js"></script>
+<script src="src/scoring.js"></script>
+<script src="src/exports.js"></script>
+<script src="src/i18n.js"></script>
+<script src="src/store-demo.js"></script>
+<script src="src/store-supabase.js"></script>
+<script src="src/app.js"></script>
+<script>
+  document.getElementById('brand').textContent =
+    (window.COURSE_CONFIG && window.COURSE_CONFIG.courseShortName) || 'Course Portal';
+  document.getElementById('footer-text').textContent =
+    (window.COURSE_CONFIG ? window.COURSE_CONFIG.organisation + ' · ' + window.COURSE_CONFIG.contactEmail : '');
+  CP.App.start();
+</script>
+</body>
+</html>

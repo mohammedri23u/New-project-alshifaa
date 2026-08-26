@@ -1,0 +1,16 @@
+# Local deployment secrets — NEVER commit this file.
+config.js
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+
+# Local exports produced by the admin console or the self-test
+exports/
+*.local.csv
+
+# Node (only used by tools/selftest.js; no dependencies required)
+node_modules/

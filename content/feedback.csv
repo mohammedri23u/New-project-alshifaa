@@ -1,0 +1,9 @@
+item_id,type,stem,options,answer_key,reverse_scored,phase,points
+F01,likert,"The course objectives were clearly explained.",,,,feedback,0
+F02,likert,"The content was relevant to my work or studies.",,,,feedback,0
+F03,likert,"The pace of the course was appropriate.",,,,feedback,0
+F04,likert,"I found it difficult to follow the material.",,,TRUE,feedback,0
+F05,likert,"I would recommend this course to a colleague.",,,,feedback,0
+F06,mcq,"How did you hear about this course?","Colleague|Social media|Institutional email|Other",,,feedback,0
+F07,text,"What was the most useful part of the course?",,,,feedback,0
+F08,text,"What single change would most improve the course?",,,,feedback,0

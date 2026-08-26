@@ -1,0 +1,8 @@
+item_id,type,stem,options,answer_key,reverse_scored,phase,points
+Q01,mcq,"Which of the following best describes the purpose of a pre-test in a short course?","To rank learners publicly|To establish a baseline before teaching|To replace the final assessment|To decide who may attend",B,,both,1
+Q02,mcq,"A study reports that 40 of 200 participants completed all components. What is the completion rate?","10%|20%|40%|80%",B,,both,1
+Q03,mcq,"Which identifier is most appropriate for linking a learner's records across several instruments while protecting privacy?","Full name|Email address|A study-generated participant code|National ID number",C,,both,1
+Q04,mcq,"If a measurement is repeated under identical conditions and gives the same answer each time, it is described as:","Valid|Reliable|Accurate|Representative",B,,both,1
+Q05,mcq,"The main advantage of collecting responses electronically rather than on paper is:","It guarantees honest answers|It removes the need for consent|It reduces transcription error|It increases the sample size",C,,both,1
+Q06,text,"In one or two sentences, describe one thing you hope to learn from this course.",,,,pre,0
+Q07,text,"In one or two sentences, describe one thing you will do differently as a result of this course.",,,,post,0
