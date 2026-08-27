@@ -100,21 +100,54 @@
     };
   }
 
+  var REQUIRED_COLUMNS = ['item_id', 'type', 'stem'];
+  var KNOWN_COLUMNS = ['item_id', 'type', 'stem', 'options', 'answer_key',
+                       'reverse_scored', 'phase', 'points'];
+
   /**
    * Load an item bank from CSV text.
    * @returns { items, errors, byId, forPhase(phase) }
    */
   function loadBank(csvText, sourceName) {
-    var rows = CSV.parseObjects(csvText);
-    var items = [], errors = [], seen = Object.create(null);
+    var name = sourceName || 'file';
+    var errors = [];
 
-    if (rows.length === 0) errors.push((sourceName || 'file') + ': no rows found');
+    // Check the header row FIRST. Without it, every data row produces its own
+    // confusing error ("stem is empty" × 40) instead of the one real problem.
+    var rawRows = CSV.parseRows(csvText).filter(function (r) {
+      return r.some(function (v) { return String(v).trim() !== ''; });
+    });
+    if (rawRows.length === 0) {
+      return emptyBank([name + ' is empty. It needs a header row and at least one question.']);
+    }
+    var header = rawRows[0].map(function (x) { return String(x).trim(); });
+    var missingCols = REQUIRED_COLUMNS.filter(function (c) { return header.indexOf(c) === -1; });
+    if (missingCols.length) {
+      return emptyBank([
+        name + ': the header row is missing the column(s): ' + missingCols.join(', ') + '.',
+        name + ': found these columns instead: ' + (header.join(', ') || '(none)') + '.',
+        'The first line must be a header. See content/README.md for the full column list.'
+      ]);
+    }
+    header.forEach(function (c) {
+      if (c && KNOWN_COLUMNS.indexOf(c) === -1) {
+        errors.push(name + ': unrecognised column "' + c + '" will be ignored. ' +
+                    'Expected one of: ' + KNOWN_COLUMNS.join(', ') + '.');
+      }
+    });
+    if (rawRows.length === 1) {
+      return emptyBank([name + ' has a header row but no questions. Add at least one.']);
+    }
+
+    var rows = CSV.parseObjects(csvText);
+    var items = [], seen = Object.create(null);
 
     rows.forEach(function (row, i) {
       var r = normaliseRow(row, i);
-      errors = errors.concat(r.errors.map(function (e) { return (sourceName || 'file') + ' ' + e; }));
+      errors = errors.concat(r.errors.map(function (e) { return name + ' ' + e; }));
       if (seen[r.item.id]) {
-        errors.push((sourceName || 'file') + ': item_id "' + r.item.id + '" is used more than once');
+        errors.push(name + ': item_id "' + r.item.id + '" is used more than once. ' +
+                    'Each item_id must be unique — it becomes a column name in the exports.');
       }
       seen[r.item.id] = true;
       items.push(r.item);
@@ -140,8 +173,20 @@
     };
   }
 
+  /** A bank that failed to load: no items, and the reasons why. */
+  function emptyBank(errors) {
+    return {
+      items: [], errors: errors, byId: Object.create(null),
+      forPhase: function () { return []; },
+      comparableItems: function () { return []; }
+    };
+  }
+
   var Items = {
     loadBank: loadBank,
+    emptyBank: emptyBank,
+    REQUIRED_COLUMNS: REQUIRED_COLUMNS,
+    KNOWN_COLUMNS: KNOWN_COLUMNS,
     normaliseRow: normaliseRow,
     LETTERS: LETTERS,
     LIKERT_SCALE: LIKERT_SCALE

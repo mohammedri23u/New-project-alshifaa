@@ -1,0 +1,9 @@
+item_id,type,stem,options,answer_key,reverse_scored,phase,points
+RDM01,mcq,"What is the main purpose of a data management plan?","To satisfy a funder and then be filed away|To set out how data will be collected, stored, shared and preserved|To list every variable in the dataset|To record who paid for the study",B,,both,1
+RDM02,mcq,"Which file naming scheme is most appropriate for research data?","final_v2_REALLY_final.xlsx|2026-10-05_trial-a_bloods_v03.csv|data.csv|Untitled spreadsheet (3).xlsx",B,,both,1
+RDM03,mcq,"The ""3-2-1 rule"" for backups means:","3 copies, on 2 media, 1 off-site|3 days, 2 servers, 1 password|3 people, 2 approvals, 1 archive|3 formats, 2 folders, 1 index",A,,both,1
+RDM04,mcq,"Personal data may be shared openly if:","The participants were told the study was important|It has been genuinely anonymised and consent permits it|The researcher removes the name column|The journal requires open data",B,,both,1
+RDM05,mcq,"Which of these makes a dataset most reusable by someone else?","A large sample size|A README describing every variable and how it was collected|Storing it as a PDF|Publishing it quickly",B,,both,1
+RDM06,mcq,"A persistent identifier such as a DOI is useful because:","It compresses the file|It keeps pointing at the dataset even if the website moves|It encrypts the data|It proves the results are correct",B,,both,1
+RDM07,text,"Before this course: what is your biggest worry about managing your own research data?",,,,pre,0
+RDM08,text,"After this course: what is the first change you will make to how you manage your data?",,,,post,0

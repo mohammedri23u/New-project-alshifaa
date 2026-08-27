@@ -1,10 +1,40 @@
 # Setting up the Course Portal
 
 Written for someone who does not write code. You will not need to install
-anything, use a terminal, or edit any program. You will edit two small text
-files and copy-and-paste one block of SQL.
+anything or write a program. You will edit two small text files and
+copy-and-paste one block of SQL.
 
-**Time needed:** about 40 minutes the first time.
+## Before you start, you need
+
+| | |
+|---|---|
+| **A Supabase account** | Free. Sign up at <https://supabase.com> with GitHub or an email address. This is the database and login system. |
+| **About 60 minutes**, uninterrupted | 40 minutes of setup, plus 20 for the first run-through. Do not do this on the morning of the course. |
+| **Somewhere to put the files** | Any free static host: Netlify Drop, Cloudflare Pages, GitHub Pages, or your institution's own web server. Netlify Drop needs no account and takes about a minute. |
+| **A text editor** | Notepad, TextEdit (in plain-text mode), VS Code — anything that saves plain text. **Not** Word. |
+| **Your course details** | Dates, day titles, and your questions. Have them written down before you start. |
+| **Your institution's SMTP details** | Host, port, username, password — ask IT. Only needed for a real course, but get it early; it is the step that most often delays people. See Part 3. |
+
+**Not needed:** a terminal, a programming language, a paid plan, or a server of
+your own.
+
+## How long each part takes
+
+| Part | What | Time |
+|---|---|---|
+| 0 | Try it with no server at all | 5 min |
+| 1 | Create the Supabase project | 5 min |
+| 2 | Create the database tables | 5 min |
+| 2b | **Check the database installed correctly** | 2 min |
+| 3 | Turn on email confirmation, set up SMTP | 10 min |
+| 4 | Copy your project keys | 5 min |
+| 5 | Add the Supabase library | 3 min |
+| 6 | Describe your course | 10 min |
+| 7 | Write your questions | as long as it takes |
+| 8 | Put the files online | 5 min |
+| 9 | Make yourself the administrator | 5 min |
+
+Then do a full dry run on a throwaway project — see **[TESTING.md](TESTING.md)**.
 
 There are two routes. Read **Part 0** first and pick one.
 
@@ -36,6 +66,18 @@ questions before a real course.
    The first account you register is automatically the administrator so you
    can explore the admin console.
 
+**Want a course that is ready to click through?** The `EXAMPLE/` folder holds a
+complete two-day course with every window already open, so you can go from
+registration to certificate without touching the admin console:
+
+```
+cp EXAMPLE/course.config.js  course.config.js
+cp EXAMPLE/questions.csv     content/questions.csv
+cp EXAMPLE/feedback.csv      content/feedback.csv
+```
+
+See `EXAMPLE/README.md`. Undo it later with `git checkout course.config.js content/`.
+
 Demo data lives only in that one browser. It is not shared, not backed up, and
 not private. **Never put real participant data in demo mode.**
 
@@ -45,7 +87,7 @@ For an actual course with real participants, follow Parts 1–9.
 
 ---
 
-## Part 1 — Create the Supabase project
+## Part 1 — Create the Supabase project *(5 minutes)*
 
 Supabase provides the database and the login system. The free tier is enough
 for a course of a few hundred people.
@@ -62,7 +104,7 @@ for a course of a few hundred people.
 
 ---
 
-## Part 2 — Create the database tables
+## Part 2 — Create the database tables *(5 minutes)*
 
 1. In the left sidebar click **SQL Editor**.
 2. Click **New query** (top right).
@@ -80,7 +122,37 @@ transaction). Copy the error message and check you pasted the entire file.
 
 ---
 
-## Part 3 — Turn ON email confirmation
+## Part 2b — Check the database installed correctly *(2 minutes)*
+
+Do not skip this. It takes two minutes and it is the only way to know that all
+of the security rules actually took effect.
+
+1. **SQL Editor** → **New query** (again).
+2. Open `tools/verify-setup.sql` from this repository, select all of it, copy it.
+3. Paste it into the box and click **Run**.
+4. You get a table of about 21 rows. Read the **result** column.
+
+**What you should see on a fresh install:**
+
+- every row `PASS`, except
+- rows 19 and 20 `WARN` — "no schedule published yet" and "no administrator
+  yet". Both are steps you have not done yet (Parts 9). That is expected.
+- the last row, `── OVERALL ──`, reads `WARN` with "Schema is correct."
+
+**If any row says `FAIL`**, the `detail` column tells you exactly what is wrong.
+Usually it means `schema.sql` did not finish — go back to Part 2 and re-run it,
+watching for a red error.
+
+> **Row 4 is the important one.** If it ever says `RLS IS OFF ON: …`, stop.
+> That means participant data would be readable by anyone with the portal
+> address. Re-run `schema.sql` and check again before going any further.
+
+This script only reads; it changes nothing. Run it again any time, including
+during a live course.
+
+---
+
+## Part 3 — Turn ON email confirmation *(10 minutes)*
 
 **Do this before anyone registers.** It is the setting that stops someone
 signing up with an address that is not theirs.
@@ -117,17 +189,35 @@ the single most common reason a course portal "does not work" on the day.
 
 ---
 
-## Part 4 — Copy your project keys
+## Part 4 — Copy your project keys *(5 minutes)*
 
-1. Left sidebar → **Project Settings** (the gear) → **API Keys**
-   (on some projects: **Data API**).
-2. You need two values:
-   - **Project URL** — looks like `https://abcdefghijkl.supabase.co`
-   - **anon** / **publishable** key — a long string of letters
-3. In this repository, make a copy of `config.sample.js` and name the
-   copy **`config.js`** (same folder as `index.html`).
-4. Open `config.js` in a text editor and paste your two values in place of the
-   placeholders. Save.
+1. Left sidebar → **Project Settings** (the gear icon at the bottom) →
+   **API Keys**. On some projects this page is called **Data API**.
+2. You need two values from that page:
+   - **Project URL** — looks like `https://abcdefghijkl.supabase.co`.
+     There is a copy button beside it; use it rather than retyping.
+   - The key labelled **anon** or **publishable** — a long string, hundreds of
+     characters. Click **Reveal** if it is hidden, then the copy button.
+3. In this repository, find `config.sample.js`. **Make a copy of it** (right-click
+   → Copy, then Paste) and **rename the copy to `config.js`** — exactly that,
+   in the same folder as `index.html`.
+4. Open `config.js` in your text editor. You will see two lines with
+   `YOUR-PROJECT-REF` and `YOUR-ANON-PUBLISHABLE-KEY` in them. Replace **only**
+   the text between the quote marks with your two values, leaving the quotes and
+   the semicolons alone. Save.
+
+It should end up looking like this, with your own values:
+
+```js
+var APP_CONFIG = {
+  SUPABASE_URL: 'https://abcdefghijkl.supabase.co',
+  SUPABASE_ANON_KEY: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJvbGUiOiJhbm9uIn0.xxxxx'
+};
+```
+
+If you paste the wrong key or a mistyped URL, the portal will tell you so in
+plain English when you open it rather than failing silently — but it is quicker
+to get it right now.
 
 > ⚠️ There is also a **service_role** / **secret** key on that page.
 > **Never** put it in `config.js`. It bypasses every security rule in the
@@ -138,7 +228,7 @@ the single most common reason a course portal "does not work" on the day.
 
 ---
 
-## Part 5 — Add the Supabase library
+## Part 5 — Add the Supabase library *(3 minutes)*
 
 The portal needs one library file, which you save once so the portal never has
 to call anyone else's server.
@@ -152,7 +242,7 @@ See `vendor/README.md` for why this is worth doing rather than linking a CDN.
 
 ---
 
-## Part 6 — Describe your course
+## Part 6 — Describe your course *(10 minutes)*
 
 Open **`course.config.js`** in a text editor. It is heavily commented. Change:
 
@@ -186,7 +276,7 @@ without a window it refuses to start and tells you which one is missing.
 
 ---
 
-## Part 7 — Write your questions
+## Part 7 — Write your questions *(as long as it takes)*
 
 Open **`content/questions.csv`** and **`content/feedback.csv`** in Excel,
 LibreOffice or Google Sheets. Replace the example rows with your own.
@@ -200,19 +290,24 @@ The short version:
   for questions you want to collect but not score.
 - **Save as CSV (UTF-8)**, not as .xlsx.
 
-Then check your file before the course, not during it:
+`EXAMPLE/questions.csv` is a complete, working set of six scored questions and
+two free-text ones — a good thing to copy and edit rather than starting from a
+blank sheet.
+
+Then check your file before the course, not during it. **You do not need any
+tools for this:** open the portal in demo mode (Part 0) and it will either work
+or show you a list of exactly what is wrong with your files, in plain English.
+
+If you happen to have Node installed, this does the same checks from the command
+line and is quicker to repeat:
 
 ```
 node tools/selftest.js
 ```
 
-It reads your real configuration and content and reports any problem in plain
-English. If you do not have Node installed, just open the portal in demo mode
-— it shows the same errors on screen.
-
 ---
 
-## Part 8 — Put the files online
+## Part 8 — Put the files online *(5 minutes)*
 
 Upload the whole folder to any static web host. All of these work and are free
 for this size of site:
@@ -229,7 +324,7 @@ Open the URL. The yellow demo banner should be **gone**. If it is still there,
 
 ---
 
-## Part 9 — Make yourself the administrator
+## Part 9 — Make yourself the administrator *(5 minutes)*
 
 There is no way to become an administrator from inside the application. That is
 deliberate: it means nobody can promote themselves.
@@ -289,5 +384,18 @@ SQL with their address.
 | Admin tab missing after you ran the SQL | Sign out and back in — administrator status is checked at sign-in |
 | A learner registered with the wrong email | Delete them in **Authentication → Users** and ask them to register again. Their participant code is not reused. |
 
-Still stuck? Open an issue on the repository with the exact message you see.
-Do not paste your `anon` key, and never paste your `service_role` key.
+For more, see **[docs/TROUBLESHOOTING.md](docs/TROUBLESHOOTING.md)**, which
+covers these in depth.
+
+Still stuck? Open an issue on the repository with the exact message you see and
+the output of `tools/verify-setup.sql`. Never paste your `service_role` key.
+
+---
+
+## Before your first real course
+
+Do a full dry run on a **throwaway** Supabase project, following
+**[TESTING.md](TESTING.md)**. It is a numbered checklist of every step from
+registration to export, with what proves each one worked. It takes about 45
+minutes and it is the difference between finding a problem now and finding it in
+front of a room of people.

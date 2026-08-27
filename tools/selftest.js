@@ -29,6 +29,8 @@ globalThis.localStorage = {
 
 const config = require(path.join(ROOT, 'course.config.js'));
 const Items = require(path.join(ROOT, 'src/items.js'));
+const Validate = require(path.join(ROOT, 'src/validate.js'));
+const StoreSupabase = require(path.join(ROOT, 'src/store-supabase.js'));
 const Scoring = require(path.join(ROOT, 'src/scoring.js'));
 const Exports = require(path.join(ROOT, 'src/exports.js'));
 const StoreDemo = require(path.join(ROOT, 'src/store-demo.js'));
@@ -289,6 +291,250 @@ async function expectThrow(label, fn, code) {
     fs.writeFileSync(path.join(outDir, 'selftest_operations.csv'), Exports.toCSV(ops));
     fs.writeFileSync(path.join(outDir, 'selftest_operations_dictionary.csv'), Exports.dictionaryToCSV(ops));
     console.log('\n        wrote 4 files to exports/');
+  }
+
+  /* ------------------------------------------------- failure handling -- */
+  // Every one of these is a mistake a real deployer makes. Each must produce a
+  // specific, named error — never a blank screen, never a silent no-op.
+  section('11. Misconfiguration is reported clearly');
+
+  function clone(o) { return JSON.parse(JSON.stringify(o)); }
+  function expectError(label, errors, fragment) {
+    const hit = errors.some(e => e.toLowerCase().includes(fragment.toLowerCase()));
+    check(label, hit, hit ? '' : 'errors were: ' + (errors.join(' | ') || '(none)'));
+  }
+
+  check('the shipped configuration itself is valid',
+    Validate.validateConfig(config).length === 0, Validate.validateConfig(config).join(' | '));
+
+  // --- course.config.js ---
+  let bad = clone(config); bad.timezone = 'Mars/Olympus_Mons';
+  expectError('invalid timezone is named', Validate.validateConfig(bad), 'not a valid IANA timezone');
+
+  bad = clone(config); bad.windows.pre.closesAt = 'next tuesday';
+  expectError('malformed date is named', Validate.validateConfig(bad), 'YYYY-MM-DDTHH:mm form');
+
+  bad = clone(config); bad.windows.post = { opensAt: '2026-09-30T13:00', closesAt: '2026-09-12T23:59' };
+  expectError('a window that closes before it opens', Validate.validateConfig(bad), 'closes');
+
+  bad = clone(config); bad.days = bad.days.slice(0, 2);   // windows.attendance_3 now orphaned
+  expectError('an attendance window with no matching day', Validate.validateConfig(bad), 'only has 2 entries');
+
+  bad = clone(config); delete bad.windows['attendance_' + bad.days[bad.days.length - 1].index];
+  expectError('a day with no attendance window', Validate.validateConfig(bad), 'no windows.attendance_');
+
+  bad = clone(config); delete bad.days[1].title;
+  expectError('a day with no title', Validate.validateConfig(bad), 'has no `title`');
+
+  bad = clone(config); bad.days[1].index = 5;
+  expectError('days numbered out of order', Validate.validateConfig(bad), 'should be 2');
+
+  bad = clone(config); bad.days = [];
+  expectError('zero days configured', Validate.validateConfig(bad), 'between 1 and 5');
+
+  bad = clone(config); bad.certificate.minAttendanceDays = 9;
+  expectError('attendance minimum above the course length', Validate.validateConfig(bad), 'nobody can ever qualify');
+
+  bad = clone(config); bad.certificate.requiredComponents = ['registration', 'posttest'];
+  expectError('a typo in requiredComponents', Validate.validateConfig(bad), 'is not a component');
+
+  bad = clone(config); delete bad.windows.post;
+  expectError('certificate requires a component that never opens',
+    Validate.validateConfig(bad), 'never opens and nobody can ever qualify');
+
+  bad = clone(config); bad.certificate.minPostScorePercent = 150;
+  expectError('an out-of-range pass mark', Validate.validateConfig(bad), 'between 0 and 100');
+
+  bad = clone(config);
+  bad.certificate.minPostScorePercent = 50;
+  bad.certificate.requiredComponents = ['registration', 'pre'];
+  expectError('a pass mark that can be dodged by skipping the test',
+    Validate.validateConfig(bad), 'would still qualify');
+
+  bad = clone(config); bad.registrationFields.push({ key: 'email', label: 'Email', type: 'text' });
+  expectError('a registration field that shadows a built-in', Validate.validateConfig(bad), 'is reserved');
+
+  bad = clone(config); bad.registrationFields.push({ key: 'role', label: 'Role again', type: 'text' });
+  expectError('a duplicated registration field', Validate.validateConfig(bad), 'is used twice');
+
+  bad = clone(config); bad.registrationFields.push({ key: 'bad key!', label: 'X', type: 'text' });
+  expectError('a registration key that cannot be a column name',
+    Validate.validateConfig(bad), 'letters, digits and underscores');
+
+  bad = clone(config); bad.registrationFields.push({ key: 'site', label: 'Site', type: 'select' });
+  expectError('a select field with no options', Validate.validateConfig(bad), 'has no options');
+
+  // --- content files ---
+  section('12. Broken content files are reported clearly');
+
+  function bankErrors(csv, name) { return Items.loadBank(csv, name || 'questions.csv').errors; }
+
+  expectError('an empty questions file', bankErrors(''), 'is empty');
+  expectError('a header row with no questions',
+    bankErrors('item_id,type,stem,phase'), 'no questions');
+  expectError('a missing required column',
+    bankErrors('item_id,type,options\nQ1,mcq,A|B'), 'missing the column(s): stem');
+  expectError('a misspelled column',
+    bankErrors('item_id,type,stem,phase,anser_key\nQ1,text,Hi,pre,x'), 'unrecognised column "anser_key"');
+  expectError('a duplicated item_id',
+    bankErrors('item_id,type,stem,options,answer_key,phase\nQ1,mcq,A?,A|B,A,both\nQ1,mcq,B?,A|B,B,both'),
+    'used more than once');
+  expectError('an answer_key that matches no option',
+    bankErrors('item_id,type,stem,options,answer_key,phase\nQ1,mcq,A?,A|B,Z,both'), 'does not match any option');
+  expectError('an mcq with no options',
+    bankErrors('item_id,type,stem,options,answer_key,phase\nQ1,mcq,A?,,,both'), 'needs options separated by');
+  expectError('an unknown item type',
+    bankErrors('item_id,type,stem,phase\nQ1,essay,Discuss,pre'), 'must be mcq, likert or text');
+  expectError('an unknown phase',
+    bankErrors('item_id,type,stem,phase\nQ1,text,Hi,someday'), 'must be pre, post, both or feedback');
+  expectError('an item_id that cannot be a column name',
+    bankErrors('item_id,type,stem,phase\nQ 1,text,Hi,pre'), 'may contain only letters');
+
+  // --- content vs configuration ---
+  section('13. Content and configuration are cross-checked');
+
+  function crossCheck(qCsv, fCsv, cfg) {
+    return Validate.validateContent(cfg || config, {
+      questions: Items.loadBank(qCsv, 'content/questions.csv'),
+      feedback: Items.loadBank(fCsv, 'content/feedback.csv')
+    });
+  }
+  const goodQ = fs.readFileSync(path.join(ROOT, config.questionsFile), 'utf8');
+  const goodF = fs.readFileSync(path.join(ROOT, config.feedbackFile), 'utf8');
+
+  check('the shipped content passes the cross-check',
+    crossCheck(goodQ, goodF).length === 0, crossCheck(goodQ, goodF).join(' | '));
+
+  expectError('no post-test questions at all',
+    crossCheck('item_id,type,stem,options,answer_key,phase\nQ1,mcq,A?,A|B,A,pre', goodF),
+    'no questions for the post-test');
+  expectError('no feedback questions at all',
+    crossCheck(goodQ, 'item_id,type,stem,phase\nF1,text,Hi,pre'),
+    'no feedback questions');
+  expectError('nothing scored in both tests, so no comparison is possible',
+    crossCheck('item_id,type,stem,options,answer_key,phase\nQ1,mcq,A?,A|B,A,pre\nQ2,mcq,B?,A|B,B,post', goodF),
+    'no scored question appears in BOTH tests');
+  expectError('a feedback item filed in the questions file',
+    crossCheck(goodQ + '\nQ99,text,Stray,,,,feedback,0', goodF), 'belong in content/feedback.csv');
+
+  // --- config.js and the backend choice ---
+  section('14. config.js problems are reported clearly');
+
+  const REAL_KEY = 'a'.repeat(60);
+  function backend(appCfg, cfg) { return Validate.chooseBackend(appCfg, cfg || config); }
+
+  check('no config.js at all falls back to demo mode, with a reason',
+    backend(null).mode === 'demo' && backend(null).errors.length === 0 &&
+    backend(null).notes.join(' ').includes('demo mode'));
+
+  const placeholder = { SUPABASE_URL: 'https://YOUR-PROJECT-REF.supabase.co', SUPABASE_ANON_KEY: 'YOUR-ANON-PUBLISHABLE-KEY' };
+  check('an unedited config.js falls back to demo mode, with a reason',
+    backend(placeholder).mode === 'demo' && backend(placeholder).errors.length === 0 &&
+    backend(placeholder).notes.join(' ').includes('placeholder'));
+
+  const forceSupabase = Object.assign({}, config, { backend: 'supabase' });
+  expectError('backend "supabase" with no config.js', backend(null, forceSupabase).errors, 'there is no config.js');
+  expectError('backend "supabase" with an unedited config.js',
+    backend(placeholder, forceSupabase).errors, 'still contains the placeholder');
+
+  expectError('a half-filled config.js',
+    backend({ SUPABASE_URL: 'https://abc.supabase.co', SUPABASE_ANON_KEY: '' }).errors, 'is incomplete');
+  expectError('a SUPABASE_URL that is not a URL',
+    backend({ SUPABASE_URL: 'abcdefg', SUPABASE_ANON_KEY: REAL_KEY }).errors, 'does not look like a URL');
+  expectError('a truncated anon key',
+    backend({ SUPABASE_URL: 'https://abc.supabase.co', SUPABASE_ANON_KEY: 'short' }).errors, 'too short');
+  expectError('an unknown backend setting',
+    backend(null, Object.assign({}, config, { backend: 'postgres' })).errors, 'must be "auto"');
+
+  check('a valid config.js selects the Supabase backend',
+    backend({ SUPABASE_URL: 'https://abc.supabase.co', SUPABASE_ANON_KEY: REAL_KEY }).mode === 'supabase');
+
+  // The service_role key is a JWT; catching it before it is published is the
+  // single highest-value check in this section.
+  function jwt(payload) {
+    const b64 = o => Buffer.from(JSON.stringify(o)).toString('base64')
+      .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    return b64({ alg: 'HS256', typ: 'JWT' }) + '.' + b64(payload) + '.' + 'c2ln';
+  }
+  const serviceKey = jwt({ iss: 'supabase', role: 'service_role', exp: 2000000000 });
+  const anonKey = jwt({ iss: 'supabase', role: 'anon', exp: 2000000000 });
+  check('a service_role key is recognised as one', Validate.looksLikeServiceRoleKey(serviceKey) === true);
+  check('an anon key is not mistaken for one', Validate.looksLikeServiceRoleKey(anonKey) === false);
+  expectError('pasting the service_role key into config.js is refused',
+    backend({ SUPABASE_URL: 'https://abc.supabase.co', SUPABASE_ANON_KEY: serviceKey }).errors,
+    'SERVICE ROLE key');
+  check('a genuine anon JWT is accepted',
+    backend({ SUPABASE_URL: 'https://abc.supabase.co', SUPABASE_ANON_KEY: anonKey }).mode === 'supabase');
+
+  // --- Supabase connection failures ---
+  section('15. Supabase connection failures are diagnosed');
+
+  function diagnose(err) { return StoreSupabase.describeConnectionError(err); }
+  function expectKind(label, err, kind, fragment) {
+    const d = diagnose(err);
+    const okKind = d.kind === kind;
+    const okText = !fragment || d.lines.join(' ').toLowerCase().includes(fragment.toLowerCase());
+    check(label, okKind && okText, 'kind=' + d.kind + ' lines=' + d.lines.join(' | '));
+  }
+  expectKind('a wrong project URL / offline browser', new TypeError('Failed to fetch'),
+    'unreachable', 'SUPABASE_URL in config.js is wrong');
+  expectKind('a paused project is mentioned as a cause', new TypeError('Failed to fetch'),
+    'unreachable', 'paused');
+  expectKind('a wrong anon key', { message: 'Invalid API key', status: 401 }, 'bad_key', 'anon');
+  expectKind('schema.sql never run',
+    { message: "Could not find the table 'public.component_windows' in the schema cache", code: 'PGRST205' },
+    'no_schema', 'SETUP.md Part 2');
+  expectKind('permissions not as expected',
+    { message: 'permission denied for table component_windows', code: '42501' }, 'denied', 'verify-setup.sql');
+  expectKind('an unrecognised error still gives advice',
+    { message: 'something odd' }, 'unknown', 'verify-setup.sql');
+  const tmo = StoreSupabase.timeoutDescriptor(StoreSupabase.PROBE_TIMEOUT_MS);
+  check('a project that never answers is capped, not left hanging',
+    tmo.kind === 'timeout' && tmo.lines.join(' ').includes('did not answer within 15 seconds'),
+    tmo.lines.join(' | '));
+  check('the connection probe has a sane timeout',
+    StoreSupabase.PROBE_TIMEOUT_MS > 2000 && StoreSupabase.PROBE_TIMEOUT_MS <= 30000,
+    String(StoreSupabase.PROBE_TIMEOUT_MS));
+
+  check('every diagnosis names the underlying technical detail',
+    [new TypeError('Failed to fetch'), { message: 'Invalid API key', status: 401 },
+     { message: 'x', code: 'PGRST205' }, { message: 'y', code: '42501' }, { message: 'z' }]
+      .every(e => diagnose(e).lines.some(l => l.includes('Technical detail'))));
+
+  /* ---------------------------------------------------- worked example -- */
+  // The EXAMPLE folder is documentation that can go stale silently. Check it
+  // against the same validators the portal itself uses.
+  section('16. The worked example in EXAMPLE/ is deployable');
+
+  const exDir = path.join(ROOT, 'EXAMPLE');
+  if (!fs.existsSync(exDir)) {
+    check('EXAMPLE/ exists', false, 'folder is missing');
+  } else {
+    const exConfig = require(path.join(exDir, 'course.config.js'));
+    const exErrs = Validate.validateConfig(exConfig);
+    check('EXAMPLE/course.config.js is valid', exErrs.length === 0, exErrs.join(' | '));
+
+    const exBanks = {
+      questions: Items.loadBank(fs.readFileSync(path.join(exDir, 'questions.csv'), 'utf8'), 'EXAMPLE/questions.csv'),
+      feedback: Items.loadBank(fs.readFileSync(path.join(exDir, 'feedback.csv'), 'utf8'), 'EXAMPLE/feedback.csv')
+    };
+    const exContentErrs = exBanks.questions.errors.concat(exBanks.feedback.errors);
+    check('EXAMPLE content files parse cleanly', exContentErrs.length === 0, exContentErrs.join(' | '));
+
+    const exCross = Validate.validateContent(exConfig, exBanks);
+    check('EXAMPLE content matches its configuration', exCross.length === 0, exCross.join(' | '));
+
+    check('EXAMPLE has items to compare pre against post',
+      exBanks.questions.comparableItems().length >= 3,
+      exBanks.questions.comparableItems().length + ' comparable item(s)');
+    check('EXAMPLE demonstrates a reverse-scored item',
+      exBanks.feedback.items.some(i => i.reverseScored));
+    check('EXAMPLE windows are all open, so it works on deployment',
+      Object.keys(exConfig.windows).every(k => {
+        const w = exConfig.windows[k];
+        const CPTZ = require(path.join(ROOT, 'src/tz.js'));
+        return CPTZ.windowState(w, exConfig.timezone, Date.now(), null).state === 'open';
+      }));
   }
 
   /* ------------------------------------------------------------ result -- */

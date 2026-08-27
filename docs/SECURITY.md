@@ -73,6 +73,14 @@ matching policy is refused for everyone.
   policy on it, so it can only be granted from the SQL editor by whoever holds
   the database password.
 
+Function privileges are locked down too. PostgreSQL grants `EXECUTE` on a new
+function to `PUBLIC` automatically, which would have let the anonymous role call
+the submission functions. They each refuse a null `auth.uid()`, so it was never
+exploitable — but `schema.sql` now revokes every function from `PUBLIC` and
+grants back only what each role needs. The anonymous role can call exactly one
+function, `component_is_open()`, which reveals whether registration is open —
+information already printed on the landing page.
+
 These properties are tested, not asserted — see "Verification" below.
 
 ### 6. Secrets are not in the repository
@@ -101,6 +109,24 @@ page ever contacts is your own Supabase project.
 
 ## Verification
 
+### Check your own deployment: `tools/verify-setup.sql`
+
+Paste it into the Supabase SQL editor after running `schema.sql`. It is
+read-only and prints a PASS/FAIL line for each of: every expected table and
+column; RLS enabled on every table; the policy count per table; exactly which
+relations and functions the anonymous role can reach; the absence of any
+`UPDATE`/`DELETE` path to submitted answers; the absence of an INSERT policy on
+`admins`; the participant-code sequence and both its triggers; the signup
+trigger on `auth.users`; and `security_invoker` on the admin views. It ends with
+a single overall verdict.
+
+It was validated by sabotage: RLS was disabled, a policy dropped, `anon` granted
+table and function access, `UPDATE` granted on answers, an INSERT policy added
+to `admins`, triggers dropped, a column dropped, a table dropped and a view
+recreated without `security_invoker` — each was caught and named.
+
+### How the schema itself was verified
+
 `supabase/schema.sql` was executed against a real PostgreSQL 16 server and the
 following were confirmed by test, each as the calling user with RLS active:
 
@@ -115,6 +141,10 @@ following were confirmed by test, each as the calling user with RLS active:
 - a second submission of the same component is refused
 - a non-administrator calling `admin_publish_config` is refused
 - certificate eligibility is computed by the database, not supplied by the client
+- an anonymous caller is refused `record_attendance`, `submit_test` and
+  `submit_feedback` at the privilege level, while retaining `component_is_open`
+- the participant-code and signup triggers still fire after `EXECUTE` is revoked
+  from every role (PostgreSQL does not check `EXECUTE` when firing a trigger)
 
 To re-run these checks you need a PostgreSQL server and a small stub providing
 `auth.users` and `auth.uid()`; the portal's own logic is covered separately and
@@ -139,6 +169,13 @@ authoritative and the live table as indicative.
 **Timing data is indicative.** `*_duration_seconds` measures wall-clock time
 between opening the form and submitting it, in the browser. It cannot tell the
 difference between thinking and making a cup of tea.
+
+**A misconfiguration is reported, not guessed at.** The portal refuses to start
+on an invalid configuration and names the file and setting to change; a wrong
+Supabase URL, a wrong key, or a database with no schema installed is diagnosed
+specifically rather than surfacing as a blank page. Pasting the `service_role`
+key into `config.js` is detected and refused before the page renders. This is
+covered by regression tests in `tools/selftest.js`.
 
 **Demo mode is not secure.** It stores everything unencrypted in one browser
 profile with no privilege boundary — the first account is simply given the

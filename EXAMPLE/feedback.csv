@@ -1,0 +1,10 @@
+item_id,type,stem,options,answer_key,reverse_scored,phase,points
+FB01,likert,"The course objectives were clearly explained.",,,,feedback,0
+FB02,likert,"The material was relevant to my own research.",,,,feedback,0
+FB03,likert,"There was enough time for the practical exercises.",,,,feedback,0
+FB04,likert,"I struggled to follow the second day.",,,TRUE,feedback,0
+FB05,likert,"I feel more confident writing a data management plan.",,,,feedback,0
+FB06,likert,"I would recommend this course to a colleague.",,,,feedback,0
+FB07,mcq,"How did you hear about this course?","Supervisor or colleague|Departmental email|Library or research office|Social media|Other",,,feedback,0
+FB08,text,"What was the most useful part of the course?",,,,feedback,0
+FB09,text,"What one change would most improve the course?",,,,feedback,0

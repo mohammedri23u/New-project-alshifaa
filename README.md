@@ -15,6 +15,63 @@ framework, no package to install. What is in this repository is what runs.
 
 ---
 
+## ⚠️ Read this before you choose this tool
+
+**This is a formative measurement tool, not an examination system.**
+
+**The answer key is downloadable by anyone taking the test.** The questions and
+their correct answers live in `content/questions.csv`, which the browser fetches
+to render the test. Any participant who opens their browser's developer tools —
+or simply visits `your-site/content/questions.csv` — can read every answer
+before answering. There is no way around this in a portal that scores in the
+browser, and pretending otherwise would be worse than saying it plainly.
+
+**Scoring happens in the browser, so a score can be falsified.** A participant
+who wanted to could submit a score that does not match their answers.
+
+*What that does and does not spoil:*
+
+- ✅ **Your analysis is safe.** Every raw response is stored, and the exports
+  **recompute** every `*_correct` flag and every pre/post figure from those raw
+  responses against the answer key — the score the browser sent is stored but
+  never used in any reported result.
+- ✅ **Measuring whether a group's knowledge changed** is exactly what this is
+  for. In a formative pre/post design nobody gains anything by cheating, and the
+  incentive to do so is close to zero.
+- ❌ **Do not use this to decide who passes, who is certified, who is hired, or
+  who receives credit.** If anything depends on an individual's score, you need
+  a system that never sends the answer key to the client and scores on a server.
+  That is a genuinely different tool.
+
+**Other things you could be harmed by not knowing:**
+
+- **Confirmation emails will not arrive at scale** unless you configure your own
+  SMTP. Supabase's built-in mailer is rate-limited to a handful of messages per
+  hour. A cohort of sixty registering at once will mostly get nothing. This is
+  the single most common day-of-course failure — see SETUP.md Part 3.
+- **"De-identified" is not "anonymous."** The research export holds no names or
+  emails, but in a course of thirty a single participant of a given role,
+  affiliation and experience band may be unique. Review your demographic fields
+  before sharing the file.
+- **A withdrawn participant must be deleted by hand** in the Supabase dashboard.
+  There is no self-service deletion. Say so in whatever you tell participants.
+- **Free Supabase projects pause after inactivity.** A portal set up three weeks
+  ahead can be asleep on the morning of the course. Open the dashboard and wake
+  it the day before.
+- **Demo mode has no security boundary at all** — everything sits unencrypted in
+  one browser profile and the first account becomes the administrator. It is for
+  trying the tool. Never put real data in it.
+- **The admin console loads every record into the browser** to build the exports.
+  Comfortable to a few hundred participants; past that, query the database
+  directly.
+- **Timing data measures a browser tab, not effort.** `*_duration_seconds`
+  cannot distinguish thinking from making a cup of tea.
+
+Full detail, including the threat model and what was verified how, is in
+[docs/SECURITY.md](docs/SECURITY.md).
+
+---
+
 ## Try it in two minutes
 
 ```
@@ -89,20 +146,9 @@ Being clear about this saves everyone time:
 
 ## Honest limitations
 
-Read [docs/SECURITY.md](docs/SECURITY.md#known-limitations--please-read-before-using-this-with-real-data)
-in full before using this with real participants. In brief:
-
-- The answer key is visible to anyone who looks at the downloaded CSV.
-- Scores are computed in the browser and could be falsified. The raw responses
-  are stored and the exports recompute every score from them, so analysis is
-  unaffected — but the live admin table could show a wrong figure.
-- Duration data measures wall-clock time in a browser tab, not effort.
-- Demo mode has no security boundary at all. It is for trying the tool.
-- Deleting a withdrawn participant is a manual step in the Supabase dashboard.
-- A de-identified file from a small course with rich demographics may still be
-  re-identifiable. Review your fields before sharing.
-- Supabase's built-in mailer is rate-limited; a course of any size needs its own
-  SMTP configured, or confirmation emails will not arrive.
+The ones that should change your decision are at the top of this page. The full
+list, with the threat model and a note on what was verified how, is in
+[docs/SECURITY.md](docs/SECURITY.md#known-limitations--please-read-before-using-this-with-real-data).
 
 ---
 
@@ -128,12 +174,18 @@ src/
   app.js                the user interface
   styles.css
 supabase/schema.sql     the whole database: tables, RLS, triggers, views
-tools/selftest.js       end-to-end check of your configuration and content
+tools/
+  selftest.js           end-to-end check of your configuration and content
+  verify-setup.sql      read-only check that the database installed correctly
+EXAMPLE/                a complete 2-day course you can deploy verbatim
 vendor/                 where you save supabase.js (see vendor/README.md)
 docs/
   SECURITY.md           threat model, guarantees, and honest limitations
   EXPORTS.md            what is in each export and how to analyse it
+  COLUMN_DICTIONARY.md  every column in both exports, and how it is derived
+  TROUBLESHOOTING.md    the ten problems people actually hit
 SETUP.md                zero to running, written for a non-programmer
+TESTING.md              the dry run to do before your first real course
 ```
 
 ---
@@ -149,6 +201,16 @@ It drives registration, attendance, both tests, feedback, eligibility and both
 exports against your actual `course.config.js` and `content/*.csv`, and reports
 problems in plain English. Run it after editing either. It needs Node, but
 nothing installed — no dependencies.
+
+**No Node?** Open the portal in demo mode instead: it runs the same validation
+and shows the same problems on screen.
+
+**For the database**, paste `tools/verify-setup.sql` into the Supabase SQL
+editor. It is read-only and prints a PASS/FAIL line for every table, policy,
+grant and trigger the portal depends on, plus an overall verdict.
+
+**Before your first real course**, work through [TESTING.md](TESTING.md) on a
+throwaway project — a numbered checklist with an expected result for every step.
 
 ---
 

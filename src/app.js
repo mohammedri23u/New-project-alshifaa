@@ -11,6 +11,7 @@
 
   var CP = global.CP;
   var TZ = CP.TZ, Items = CP.Items, Scoring = CP.Scoring, Exports = CP.Exports, CSV = CP.CSV;
+  var Validate = CP.Validate;
 
   var config, i18n, store, banks = {}, session = null, windows = {};
   var view = { name: 'home', data: null };
@@ -83,67 +84,52 @@
     document.documentElement.dir = i18n.dir;
     document.title = config.courseName + ' — ' + t('appTitle');
 
-    var configErrors = validateConfig(config);
+    var configErrors = Validate.validateConfig(config);
     if (configErrors.length) return fatal(t('configError'), configErrors);
 
     return Promise.all([
-      fetchText(config.questionsFile),
-      fetchText(config.feedbackFile)
+      fetchContent(config.questionsFile),
+      fetchContent(config.feedbackFile)
     ]).then(function (texts) {
       banks.questions = Items.loadBank(texts[0], config.questionsFile);
       banks.feedback = Items.loadBank(texts[1], config.feedbackFile);
+
       var errs = banks.questions.errors.concat(banks.feedback.errors);
+      // Only cross-check the two files against the configuration once each file
+      // is individually sound, or the deployer gets a wall of knock-on errors.
+      if (!errs.length) errs = Validate.validateContent(config, banks);
       if (errs.length) return fatal(t('contentError'), errs);
+
       return chooseStore();
     }).then(function () {
-      if (!store) return;
+      if (!store) return;                       // chooseStore already showed a card
       return refresh();
-    }).catch(function (e) {
-      fatal(t('contentError'), [String(e && e.message ? e.message : e),
-        'If you opened index.html directly from your file manager, that will not work: ' +
-        'the browser blocks reading content/questions.csv from a file:// address. ' +
-        'Serve the folder over HTTP instead — see SETUP.md.']);
     });
   }
 
-  function validateConfig(c) {
-    var errs = [];
-    if (!c) return ['course.config.js did not load at all.'];
-    var days = c.days || [];
-    if (days.length < 1 || days.length > 5) errs.push('days must contain between 1 and 5 entries (found ' + days.length + ').');
-    days.forEach(function (d, i) {
-      if (Number(d.index) !== i + 1) errs.push('days[' + i + '].index should be ' + (i + 1) + '.');
-      if (!(c.windows || {})['attendance_' + d.index]) {
-        errs.push('No windows.attendance_' + d.index + ' entry for day ' + d.index + '.');
+  /**
+   * Fetch one content file, translating the handful of ways this fails into
+   * advice rather than an HTTP status nobody outside web development reads.
+   */
+  function fetchContent(path) {
+    return fetch(path, { cache: 'no-store' }).then(function (r) {
+      if (r.status === 404) {
+        throw new Error('The file "' + path + '" was not found. Check the name and location — ' +
+          'it must sit exactly where course.config.js says (questionsFile / feedbackFile), ' +
+          'relative to index.html. Filenames are case-sensitive on most web hosts.');
       }
+      if (!r.ok) throw new Error('The file "' + path + '" could not be read (HTTP ' + r.status + ').');
+      return r.text();
+    }, function (networkError) {
+      // fetch() rejects rather than resolving for file:// and for network faults.
+      var isFile = global.location && global.location.protocol === 'file:';
+      throw new Error(isFile
+        ? 'The portal cannot read "' + path + '" because you opened index.html directly from your ' +
+          'file manager. Browsers block that for security. Serve the folder over HTTP instead — ' +
+          'run "python3 -m http.server 8000" in this folder and open http://localhost:8000 ' +
+          '(SETUP.md Part 0).'
+        : 'The file "' + path + '" could not be loaded: ' + (networkError && networkError.message));
     });
-    try {
-      TZ.offsetMs(Date.now(), c.timezone);
-    } catch (e) {
-      // Every window check below converts times using this timezone, so there
-      // is nothing more to say until it is fixed.
-      errs.push('timezone "' + c.timezone + '" is not a valid IANA timezone name. ' +
-                'Use a name from the tz database, such as "Africa/Cairo" or "Europe/London".');
-      return errs;
-    }
-    Object.keys(c.windows || {}).forEach(function (k) {
-      var w = c.windows[k];
-      ['opensAt', 'closesAt'].forEach(function (f) {
-        if (w[f] && isNaN(TZ.wallToInstant(w[f], c.timezone))) {
-          errs.push('windows.' + k + '.' + f + ' ("' + w[f] + '") is not in YYYY-MM-DDTHH:mm form.');
-        }
-      });
-      if (w.opensAt && w.closesAt && TZ.wallToInstant(w.opensAt, c.timezone) > TZ.wallToInstant(w.closesAt, c.timezone)) {
-        errs.push('windows.' + k + ' closes before it opens.');
-      }
-    });
-    var keys = {};
-    (c.registrationFields || []).forEach(function (f) {
-      if (!/^[a-z0-9_]+$/i.test(f.key || '')) errs.push('registrationFields key "' + f.key + '" must be letters, digits and underscores only.');
-      if (keys[f.key]) errs.push('registrationFields key "' + f.key + '" is duplicated.');
-      keys[f.key] = true;
-    });
-    return errs;
   }
 
   function fatal(title, lines) {
@@ -156,35 +142,50 @@
   }
 
   function chooseStore() {
-    var app = global.APP_CONFIG || null;
-    var hasCreds = app && app.SUPABASE_URL && app.SUPABASE_ANON_KEY &&
-      app.SUPABASE_URL.indexOf('YOUR-PROJECT-REF') === -1 &&
-      app.SUPABASE_ANON_KEY.indexOf('YOUR-ANON') === -1;
-    var want = config.backend || 'auto';
+    var decision = Validate.chooseBackend(global.APP_CONFIG || null, config);
 
-    if (want === 'supabase' && !hasCreds) {
-      fatal(t('configError'), ['course.config.js sets backend: "supabase", but config.js has no real credentials. ' +
-        'Copy config.sample.js to config.js and fill it in.']);
+    if (decision.errors.length) {
+      fatal(t('configError'), decision.errors);
       return Promise.resolve();
     }
-    if (want === 'demo' || !hasCreds) {
+
+    if (decision.mode === 'demo') {
       store = CP.StoreDemo.create({ config: config });
       document.getElementById('demo-banner').hidden = false;
       return Promise.resolve();
     }
+
+    var app = global.APP_CONFIG;
     // The Supabase library is fetched ONLY when real credentials are present.
     // In demo mode the portal therefore makes no request for it at all.
     return loadScript('vendor/supabase.js').then(function () {
       if (!global.supabase || !global.supabase.createClient) {
-        throw new Error('vendor/supabase.js loaded but did not define the client.');
+        throw new Error('vendor/supabase.js loaded but did not define window.supabase. ' +
+                        'Make sure you saved the UMD build linked in SETUP.md Part 5.');
       }
       var client = global.supabase.createClient(app.SUPABASE_URL, app.SUPABASE_ANON_KEY);
-      store = CP.StoreSupabase.create({ config: config, client: client });
+      var candidate = CP.StoreSupabase.create({ config: config, client: client });
+
+      // Say what is happening: the probe can take a few seconds, and a silent
+      // "Loading…" is indistinguishable from a hang.
+      clear(root);
+      root.appendChild(h('p', { class: 'muted', text: 'Connecting to your Supabase project…' }));
+
+      // Ask the database one trivial question before showing anyone a screen,
+      // so a wrong URL or missing schema is named now rather than surfacing as
+      // an unexplained empty page after someone has typed their password.
+      return candidate.probe().then(function (problem) {
+        if (problem) {
+          fatal(t('configError'), problem.lines);
+          return;
+        }
+        store = candidate;
+      });
     }).catch(function (e) {
       fatal(t('configError'), [
         'config.js contains Supabase credentials, but the Supabase client library could not be loaded.',
-        String(e.message || e),
-        'Download it once and save it as vendor/supabase.js — see SETUP.md step 5.'
+        String(e && e.message ? e.message : e),
+        'Download it once and save it as vendor/supabase.js — see SETUP.md Part 5.'
       ]);
     });
   }

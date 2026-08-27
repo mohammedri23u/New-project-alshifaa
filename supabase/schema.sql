@@ -66,9 +66,6 @@ as $$
   select exists (select 1 from public.admins a where a.user_id = auth.uid());
 $$;
 
-revoke all on function public.is_admin() from public;
-grant execute on function public.is_admin() to authenticated;
-
 -- ---------------------------------------------------------------------------
 -- 3. Participants -----------------------------------------------------------
 -- One row per learner. `id` IS the auth user id, so RLS is a simple comparison
@@ -188,9 +185,6 @@ as $$
   from (select p_key as k) q
   left join public.component_windows w on w.key = q.k;
 $$;
-
-revoke all on function public.component_is_open(text) from public;
-grant execute on function public.component_is_open(text) to anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 5. Attendance -------------------------------------------------------------
@@ -434,11 +428,6 @@ begin
 end;
 $$;
 
-revoke all on function public.admin_set_window_override(text, boolean) from public;
-revoke all on function public.admin_publish_config(jsonb) from public;
-grant execute on function public.admin_set_window_override(text, boolean) to authenticated;
-grant execute on function public.admin_publish_config(jsonb) to authenticated;
-
 -- ---------------------------------------------------------------------------
 -- 10. Progress and eligibility ----------------------------------------------
 -- The certificate rule is evaluated HERE. The browser only displays the answer.
@@ -624,7 +613,40 @@ create policy feedback_answers_select_own on public.feedback_answers
   for select to authenticated using (participant_id = auth.uid() or public.is_admin());
 
 -- ---------------------------------------------------------------------------
--- 13. Grants ----------------------------------------------------------------
+-- 13. Function privileges ---------------------------------------------------
+-- PostgreSQL grants EXECUTE on a new function to PUBLIC automatically, which
+-- would let the anonymous role call the submission functions. They all refuse
+-- a null auth.uid(), so this was never exploitable — but an anonymous visitor
+-- has no business being able to invoke them at all, so every function is
+-- revoked from PUBLIC here and then granted back only where it is needed.
+--
+-- Trigger functions are granted to nobody: PostgreSQL does not check EXECUTE
+-- when firing a trigger, so they keep working while being uncallable directly.
+-- ---------------------------------------------------------------------------
+revoke all on function public.is_admin()                                     from public;
+revoke all on function public.component_is_open(text)                        from public;
+revoke all on function public.assign_participant_code()                      from public;
+revoke all on function public.protect_participant_identity()                 from public;
+revoke all on function public.handle_new_auth_user()                         from public;
+revoke all on function public.record_attendance(integer)                     from public;
+revoke all on function public.submit_test(text, numeric, numeric, numeric, integer, jsonb) from public;
+revoke all on function public.submit_feedback(jsonb)                         from public;
+revoke all on function public.admin_set_window_override(text, boolean)       from public;
+revoke all on function public.admin_publish_config(jsonb)                    from public;
+
+-- The ONLY function an anonymous visitor may call: it reveals whether a
+-- component is open, which is already public information on the landing page.
+grant execute on function public.component_is_open(text) to anon, authenticated;
+
+grant execute on function public.is_admin()                                  to authenticated;
+grant execute on function public.record_attendance(integer)                  to authenticated;
+grant execute on function public.submit_test(text, numeric, numeric, numeric, integer, jsonb) to authenticated;
+grant execute on function public.submit_feedback(jsonb)                      to authenticated;
+grant execute on function public.admin_set_window_override(text, boolean)    to authenticated;
+grant execute on function public.admin_publish_config(jsonb)                 to authenticated;
+
+-- ---------------------------------------------------------------------------
+-- 14. Table grants ----------------------------------------------------------
 -- RLS decides row visibility; these decide which operations are offered at all.
 -- anon gets the timetable and nothing else.
 -- ---------------------------------------------------------------------------
@@ -650,10 +672,6 @@ grant select on public.v_admin_test_submissions to authenticated;
 grant select on public.v_admin_test_answers    to authenticated;
 grant select on public.v_admin_feedback        to authenticated;
 grant select on public.v_admin_feedback_answers to authenticated;
-
-grant execute on function public.record_attendance(integer) to authenticated;
-grant execute on function public.submit_test(text, numeric, numeric, numeric, integer, jsonb) to authenticated;
-grant execute on function public.submit_feedback(jsonb) to authenticated;
 
 commit;
 

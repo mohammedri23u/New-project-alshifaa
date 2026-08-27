@@ -20,6 +20,84 @@
   }
   var TZ = req('TZ', './tz.js');
 
+  /**
+   * Turn a failed Supabase call into something a course coordinator can act on.
+   * Pure function of the error object, so every branch is unit-testable without
+   * a live project — which matters, because these are exactly the failures you
+   * only ever meet on the morning of the course.
+   *
+   * @returns { kind, lines[] }
+   */
+  function describeConnectionError(error) {
+    var msg = String((error && (error.message || error.msg)) || error || '');
+    var code = (error && error.code) || '';
+    var status = (error && (error.status || error.statusCode)) || 0;
+
+    // A browser reports every DNS failure, offline state, blocked request and
+    // CORS rejection as an opaque "Failed to fetch". All four look identical.
+    if (/failed to fetch|networkerror|fetch failed|load failed|err_name_not_resolved|enotfound/i.test(msg)) {
+      return { kind: 'unreachable', lines: [
+        'Could not reach your Supabase project.',
+        'Most likely: SUPABASE_URL in config.js is wrong — check it character by character against ' +
+        'Project Settings → API Keys → Project URL. A single wrong letter in the project reference gives exactly this error.',
+        'Also possible: the project is paused (free projects pause after inactivity — open the Supabase ' +
+        'dashboard and resume it), you are offline, or a firewall is blocking supabase.co.',
+        'Technical detail: ' + msg
+      ] };
+    }
+
+    if (status === 401 || /invalid api key|jwt|apikey|no api key/i.test(msg)) {
+      return { kind: 'bad_key', lines: [
+        'Your Supabase project answered, but rejected the key.',
+        'SUPABASE_ANON_KEY in config.js is wrong, truncated, or from a different project. ' +
+        'Copy the whole "anon" / "publishable" key again from Project Settings → API Keys.',
+        'Do not use the service_role key: it would expose every participant\'s data to every visitor.',
+        'Technical detail: ' + msg
+      ] };
+    }
+
+    // PGRST205: PostgREST could not find the table in its schema cache.
+    if (code === 'PGRST205' || status === 404 || /does not exist|could not find the table|schema cache/i.test(msg)) {
+      return { kind: 'no_schema', lines: [
+        'Your Supabase project answered, but the portal\'s tables are not there.',
+        'You have almost certainly not run supabase/schema.sql yet — do SETUP.md Part 2, ' +
+        'then run tools/verify-setup.sql to confirm it worked.',
+        'If you did run it, check you were in the right project: the URL in config.js must belong to ' +
+        'the same project you pasted the SQL into.',
+        'Technical detail: ' + msg
+      ] };
+    }
+
+    if (status === 403 || code === '42501' || /permission denied|row-level security|not authorized/i.test(msg)) {
+      return { kind: 'denied', lines: [
+        'Your Supabase project refused this request.',
+        'The tables exist but their permissions are not as the portal expects. ' +
+        'Re-run supabase/schema.sql, then run tools/verify-setup.sql — it will name the exact problem.',
+        'Technical detail: ' + msg
+      ] };
+    }
+
+    return { kind: 'unknown', lines: [
+      'The portal could not talk to your Supabase project.',
+      'Run tools/verify-setup.sql in the Supabase SQL editor — it checks the database and ' +
+      'reports what is missing.',
+      'Technical detail: ' + msg + (code ? ' (code ' + code + ')' : '')
+    ] };
+  }
+
+  var PROBE_TIMEOUT_MS = 15000;
+
+  function timeoutDescriptor(ms) {
+    return { kind: 'timeout', lines: [
+      'Your Supabase project did not answer within ' + Math.round(ms / 1000) + ' seconds.',
+      'The address in config.js is reachable but is not responding as a Supabase project. ' +
+      'Check that SUPABASE_URL is the Project URL from Project Settings → API Keys — a plain ' +
+      'website address, or a URL with a path on the end, produces exactly this.',
+      'If the URL is right, the project may be paused or the Supabase service may be having an ' +
+      'outage: check https://status.supabase.com and your project dashboard.'
+    ] };
+  }
+
   function create(options) {
     var opts = options || {};
     var config = opts.config;
@@ -83,6 +161,34 @@
 
     var api = {
       mode: 'supabase',
+
+      /**
+       * One cheap request made before the UI is shown, so that a wrong URL,
+       * a wrong key or a database with no schema is reported as itself instead
+       * of surfacing later as an inexplicable blank page.
+       * Resolves with null on success, or { kind, lines } describing the fault.
+       */
+      probe: function (timeoutMs) {
+        var limit = timeoutMs === undefined ? PROBE_TIMEOUT_MS : timeoutMs;
+        var query = client.from('component_windows').select('key').limit(1)
+          .then(function (res) {
+            return res.error ? describeConnectionError(res.error) : null;
+          })
+          .catch(function (e) { return describeConnectionError(e); });
+
+        // The Supabase client sets no timeout of its own. A URL that points at
+        // a real host which simply never answers can hang for a minute or more,
+        // which looks to the deployer like the portal is broken rather than
+        // misconfigured. Cap the wait and say so.
+        var timer;
+        var timeout = new Promise(function (resolve) {
+          timer = setTimeout(function () { resolve(timeoutDescriptor(limit)); }, limit);
+        });
+        return Promise.race([query, timeout]).then(function (r) {
+          clearTimeout(timer);
+          return r;
+        });
+      },
 
       /* ---- authentication ------------------------------------------- */
       signUp: function (input) {
@@ -302,7 +408,12 @@
     return api;
   }
 
-  var StoreSupabase = { create: create };
+  var StoreSupabase = {
+    create: create,
+    describeConnectionError: describeConnectionError,
+    timeoutDescriptor: timeoutDescriptor,
+    PROBE_TIMEOUT_MS: PROBE_TIMEOUT_MS
+  };
   global.CP = global.CP || {};
   global.CP.StoreSupabase = StoreSupabase;
   if (typeof module !== 'undefined' && module.exports) module.exports = StoreSupabase;
